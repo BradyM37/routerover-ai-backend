@@ -5,14 +5,17 @@ dotenv.config();
 // Try to load Hugging Face, but don't fail if it's not available
 let HfInference;
 let inference;
+let HF_API_KEY = process.env.HF_API_KEY; // Define this at the top level
+
 try {
   const { HfInference: HfInferenceImport } = require('@huggingface/inference');
   HfInference = HfInferenceImport;
   
-  // Initialize Hugging Face client with API key (free tier available)
-  const HF_API_KEY = process.env.HF_API_KEY; // Get this from huggingface.co
+  // Initialize Hugging Face client with API key and timeout
   if (HF_API_KEY) {
-    inference = new HfInference(HF_API_KEY);
+    inference = new HfInference(HF_API_KEY, {
+      timeout: 30000 // 30 seconds timeout
+    });
     console.log('Hugging Face inference initialized successfully');
   } else {
     console.log('No Hugging Face API key found, falling back to rule-based responses');
@@ -24,65 +27,63 @@ try {
 exports.processMessage = async (message, conversationHistory = []) => {
   // Check if Hugging Face is available
   if (inference) {
-// Update the try-catch block in processMessage:
-
-try {
-  console.log('Processing message with Hugging Face:', message);
-  
-  // Format conversation for the model
-  let prompt = "You are RouteRover AI, an assistant for a home service company. ";
-  prompt += "You help customers book appointments for services like cleaning, repair, plumbing, electrical, and landscaping. ";
-  prompt += "Be friendly, helpful, and concise.\n\n";
-  
-  // Add conversation history
-  if (conversationHistory.length > 0) {
-    conversationHistory.forEach(msg => {
-      const role = msg.role === 'user' ? 'User' : 'Assistant';
-      prompt += `${role}: ${msg.content}\n`;
-    });
-  }
-  
-  // Add current message
-  prompt += `User: ${message}\nAssistant:`;
-  
-  console.log('Using Hugging Face API key:', HF_API_KEY ? 'Key is set' : 'Key is missing');
-  console.log('Prompt being sent to model:', prompt);
-  
-  // Call Hugging Face API with a more reliable model
-  const response = await inference.textGeneration({
-    model: 'gpt2', // Smaller, more reliable model
-    inputs: prompt,
-    parameters: {
-      max_new_tokens: 150,
-      temperature: 0.7,
-      top_p: 0.95,
-      do_sample: true
+    try {
+      console.log('Processing message with Hugging Face:', message);
+      
+      // Format conversation for the model
+      let prompt = "You are RouteRover AI, an assistant for a home service company. ";
+      prompt += "You help customers book appointments for services like cleaning, repair, plumbing, electrical, and landscaping. ";
+      prompt += "Be friendly, helpful, and concise.\n\n";
+      
+      // Add conversation history
+      if (conversationHistory.length > 0) {
+        conversationHistory.forEach(msg => {
+          const role = msg.role === 'user' ? 'User' : 'Assistant';
+          prompt += `${role}: ${msg.content}\n`;
+        });
+      }
+      
+      // Add current message
+      prompt += `User: ${message}\nAssistant:`;
+      
+      console.log('Using Hugging Face API key:', HF_API_KEY ? 'Key is set' : 'Key is missing');
+      console.log('Prompt being sent to model:', prompt);
+      
+      // Try a different model that's more reliable for this use case
+      const response = await inference.textGeneration({
+        model: 'facebook/opt-125m', // Even smaller, more reliable model
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 100,
+          temperature: 0.7,
+          top_p: 0.95,
+          do_sample: true
+        }
+      });
+      
+      console.log('Hugging Face response:', response);
+      
+      // Extract the generated text
+      const assistantMessage = response.generated_text.trim();
+      
+      // Simple intent detection
+      const intent = detectIntent(message);
+      
+      return {
+        response: assistantMessage,
+        intent: intent,
+        appointmentBooked: false
+      };
+    } catch (error) {
+      console.error('Error calling Hugging Face API:', error);
+      console.error('Error details:', error.message);
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+      }
+      
+      // Fallback to rule-based responses
+      return generateFallbackResponse(message);
     }
-  });
-  
-  console.log('Hugging Face response:', response);
-  
-  // Extract the generated text
-  const assistantMessage = response.generated_text.trim();
-  
-  // Simple intent detection
-  const intent = detectIntent(message);
-  
-  return {
-    response: assistantMessage,
-    intent: intent,
-    appointmentBooked: false
-  };
-} catch (error) {
-  console.error('Error calling Hugging Face API:', error);
-  console.error('Error details:', error.message);
-  if (error.response) {
-    console.error('Error response:', error.response.data);
-  }
-  
-  // Fallback to rule-based responses
-  return generateFallbackResponse(message);
-}
   } else {
     // Hugging Face not available, use fallback
     console.log('Using fallback response system');
