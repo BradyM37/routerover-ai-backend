@@ -1,61 +1,82 @@
-const { HfInference } = require('@huggingface/inference');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Initialize Hugging Face client with API key (free tier available)
-const HF_API_KEY = process.env.HF_API_KEY; // Get this from huggingface.co
-const inference = new HfInference(HF_API_KEY);
+// Try to load Hugging Face, but don't fail if it's not available
+let HfInference;
+let inference;
+try {
+  const { HfInference: HfInferenceImport } = require('@huggingface/inference');
+  HfInference = HfInferenceImport;
+  
+  // Initialize Hugging Face client with API key (free tier available)
+  const HF_API_KEY = process.env.HF_API_KEY; // Get this from huggingface.co
+  if (HF_API_KEY) {
+    inference = new HfInference(HF_API_KEY);
+    console.log('Hugging Face inference initialized successfully');
+  } else {
+    console.log('No Hugging Face API key found, falling back to rule-based responses');
+  }
+} catch (error) {
+  console.log('Hugging Face package not available, falling back to rule-based responses');
+}
 
 exports.processMessage = async (message, conversationHistory = []) => {
-  try {
-    console.log('Processing message with Hugging Face:', message);
-    
-    // Format conversation for the model
-    let prompt = "You are RouteRover AI, an assistant for a home service company. ";
-    prompt += "You help customers book appointments for services like cleaning, repair, plumbing, electrical, and landscaping. ";
-    prompt += "Be friendly, helpful, and concise.\n\n";
-    
-    // Add conversation history
-    if (conversationHistory.length > 0) {
-      conversationHistory.forEach(msg => {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        prompt += `${role}: ${msg.content}\n`;
-      });
-    }
-    
-    // Add current message
-    prompt += `User: ${message}\nAssistant:`;
-    
-    // Call Hugging Face API with a suitable model
-    const response = await inference.textGeneration({
-      model: 'mistralai/Mistral-7B-Instruct-v0.2', // Free to use model
-      inputs: prompt,
-      parameters: {
-        max_new_tokens: 150,
-        temperature: 0.7,
-        top_p: 0.95,
-        do_sample: true
+  // Check if Hugging Face is available
+  if (inference) {
+    try {
+      console.log('Processing message with Hugging Face:', message);
+      
+      // Format conversation for the model
+      let prompt = "You are RouteRover AI, an assistant for a home service company. ";
+      prompt += "You help customers book appointments for services like cleaning, repair, plumbing, electrical, and landscaping. ";
+      prompt += "Be friendly, helpful, and concise.\n\n";
+      
+      // Add conversation history
+      if (conversationHistory.length > 0) {
+        conversationHistory.forEach(msg => {
+          const role = msg.role === 'user' ? 'User' : 'Assistant';
+          prompt += `${role}: ${msg.content}\n`;
+        });
       }
-    });
-    
-    console.log('Hugging Face response:', response);
-    
-    // Extract the generated text
-    const assistantMessage = response.generated_text.trim();
-    
-    // Simple intent detection
-    const intent = detectIntent(message);
-    
-    return {
-      response: assistantMessage,
-      intent: intent,
-      appointmentBooked: false
-    };
-  } catch (error) {
-    console.error('Error calling Hugging Face API:', error);
-    
-    // Fallback to rule-based responses
+      
+      // Add current message
+      prompt += `User: ${message}\nAssistant:`;
+      
+      // Call Hugging Face API with a suitable model
+      const response = await inference.textGeneration({
+        model: 'mistralai/Mistral-7B-Instruct-v0.2', // Free to use model
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 150,
+          temperature: 0.7,
+          top_p: 0.95,
+          do_sample: true
+        }
+      });
+      
+      console.log('Hugging Face response:', response);
+      
+      // Extract the generated text
+      const assistantMessage = response.generated_text.trim();
+      
+      // Simple intent detection
+      const intent = detectIntent(message);
+      
+      return {
+        response: assistantMessage,
+        intent: intent,
+        appointmentBooked: false
+      };
+    } catch (error) {
+      console.error('Error calling Hugging Face API:', error);
+      
+      // Fallback to rule-based responses
+      return generateFallbackResponse(message);
+    }
+  } else {
+    // Hugging Face not available, use fallback
+    console.log('Using fallback response system');
     return generateFallbackResponse(message);
   }
 };
@@ -78,7 +99,7 @@ function detectIntent(message) {
   }
 }
 
-// Generate a fallback response when OpenAI API is unavailable
+// Generate a fallback response when API is unavailable
 function generateFallbackResponse(message) {
   const lowerMessage = message.toLowerCase();
   
@@ -105,7 +126,7 @@ function generateFallbackResponse(message) {
     };
   } else if (lowerMessage.includes('when') && lowerMessage.includes('company')) {
     return {
-      response: "RouteRover was founded in 2023 to provide efficient and reliable home services with smart scheduling technology.",
+      response: "RouteRover was founded in 2025 to provide efficient and reliable home services with smart scheduling technology.",
       intent: "company_info"
     };
   } else {
