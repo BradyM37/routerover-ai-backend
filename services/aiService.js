@@ -1,49 +1,48 @@
-const axios = require('axios');
+const { HfInference } = require('@huggingface/inference');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Initialize Hugging Face client with API key (free tier available)
+const HF_API_KEY = process.env.HF_API_KEY; // Get this from huggingface.co
+const inference = new HfInference(HF_API_KEY);
 
 exports.processMessage = async (message, conversationHistory = []) => {
   try {
-    console.log('Processing message:', message);
+    console.log('Processing message with Hugging Face:', message);
     
-    // Call OpenAI API
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: `You are RouteRover AI, an assistant for a home service company. 
-            You help customers book appointments for services like cleaning, repair, plumbing, electrical, and landscaping.
-            Be friendly, helpful, and concise.`
-          },
-          // Include conversation history if available
-          ...conversationHistory.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          })),
-          {
-            role: 'user',
-            content: message
-          }
-        ],
+    // Format conversation for the model
+    let prompt = "You are RouteRover AI, an assistant for a home service company. ";
+    prompt += "You help customers book appointments for services like cleaning, repair, plumbing, electrical, and landscaping. ";
+    prompt += "Be friendly, helpful, and concise.\n\n";
+    
+    // Add conversation history
+    if (conversationHistory.length > 0) {
+      conversationHistory.forEach(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        prompt += `${role}: ${msg.content}\n`;
+      });
+    }
+    
+    // Add current message
+    prompt += `User: ${message}\nAssistant:`;
+    
+    // Call Hugging Face API with a suitable model
+    const response = await inference.textGeneration({
+      model: 'mistralai/Mistral-7B-Instruct-v0.2', // Free to use model
+      inputs: prompt,
+      parameters: {
+        max_new_tokens: 150,
         temperature: 0.7,
-        max_tokens: 150
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
-        }
+        top_p: 0.95,
+        do_sample: true
       }
-    );
+    });
     
-    // Extract the assistant's message
-    const assistantMessage = response.data.choices[0].message.content;
+    console.log('Hugging Face response:', response);
+    
+    // Extract the generated text
+    const assistantMessage = response.generated_text.trim();
     
     // Simple intent detection
     const intent = detectIntent(message);
@@ -54,22 +53,13 @@ exports.processMessage = async (message, conversationHistory = []) => {
       appointmentBooked: false
     };
   } catch (error) {
-    console.error('Error calling OpenAI API:', error.response?.data || error.message);
-    
-    // Check if it's a quota error
-    if (error.response?.data?.error?.code === 'insufficient_quota') {
-      return {
-        response: "I'm currently experiencing high demand and can't process your request right now. Please try again later or use the form booking option instead.",
-        intent: "error",
-        appointmentBooked: false,
-        error: "API quota exceeded"
-      };
-    }
+    console.error('Error calling Hugging Face API:', error);
     
     // Fallback to rule-based responses
     return generateFallbackResponse(message);
   }
 };
+
 
 // Simple intent detection function
 function detectIntent(message) {
